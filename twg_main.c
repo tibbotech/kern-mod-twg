@@ -49,8 +49,13 @@ static irqreturn_t twg_wX_iht( int _irq, void *_pdata) {
  add_timer( &( _p->timer));
  return( IRQ_HANDLED);  }
 
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0))
 void twg_timer_fn( unsigned long _pdata) {
  twg_pdata_t *_p = ( twg_pdata_t *)_pdata;
+#else
+void twg_timer_fn( struct timer_list *_t) {
+ twg_pdata_t *_p = ( twg_pdata_t *)from_timer( _p, _t, timer);
+#endif
  int tmp_mode = _p->mode;
  if ( _p->d.blen >= TWG_MAX_BUF) {
    _p->stat_over++;
@@ -116,7 +121,7 @@ int change_mode( twg_pdata_t *_p, uint8_t _m) {
 static int twg_probe( struct platform_device *_pdev) {
  twg_pdata_t *p = NULL;
  int ret = -ENODEV;
- uint32_t *init_v32p;
+ const __be32 *init_v32p;
  uint8_t mode_init = 1;
  int lenp;
  struct device_node *np = _pdev->dev.of_node;
@@ -167,9 +172,13 @@ static int twg_probe( struct platform_device *_pdev) {
  // FIXME: double check this
  if ( p->pin_sw) gpio_direction_output( p->pin_sw, mode_init);
  if ( p->pin_oc) gpio_direction_output( p->pin_oc, 1);
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0))
  init_timer( &( p->timer));
  p->timer.function = twg_timer_fn;
  p->timer.data = ( unsigned long)p;
+#else
+ timer_setup( &( p->timer), twg_timer_fn, 0);
+#endif
  _pdev->dev.platform_data = p;
  printk( KERN_INFO "%s configured (%s)\n", MNAME, p->name);
  twg_procfs_init( _pdev);
