@@ -139,8 +139,7 @@ static int twg_probe( struct platform_device *_pdev) {
  p->pin_oc = of_get_named_gpio( np, "wg-oc", 0);
 // FIXME: add choose mode in OF
  if ( ( init_v32p = of_get_property( _pdev->dev.of_node, "mode", &lenp))) {
-   *init_v32p = be32_to_cpup( init_v32p);
-   mode_init = ( uint8_t)( *init_v32p);
+   mode_init = ( uint8_t)be32_to_cpup( init_v32p);
  }
  if ( !gpio_is_valid( p->pin_w0)) p->pin_w0 = 0;
  if ( !gpio_is_valid( p->pin_w1)) p->pin_w1 = 0;
