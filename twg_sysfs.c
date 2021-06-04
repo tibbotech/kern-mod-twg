@@ -70,7 +70,7 @@ static ssize_t twg_sop_data_R(
 ///printk( KERN_ERR "%s X0\n", _p->name);
  if ( !_p->d_done) return( ret);
  x = cpu_to_le16( _p->d.blen);
-printk( KERN_ERR "%s X1:%d\n", _p->name, x);
+//printk( KERN_ERR "%s X1:%d\n", _p->name, x);
  memcpy( _b, &( x), sizeof( x));
  memcpy( _b+sizeof(x), &( _p->d.buff), sizeof( _p->d.buff));
  if ( _p->debug > 2) printk( KERN_ERR "%s %s() ret:%d bits\n", _p->name, __FUNCTION__, x);

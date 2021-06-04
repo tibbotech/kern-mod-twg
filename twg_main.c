@@ -36,17 +36,13 @@ static irqreturn_t twg_wX_ih( int _irq, void *_pdata) {
    _p->d.blen++;
  }
  local_irq_restore( flags);
+//printk( KERN_ERR "%s %s() blen:%d - WAKE w1:%d\n", _p->name, __FUNCTION__, _p->d.blen, w1_val);
  return( IRQ_WAKE_THREAD);  }
 
 // IRQ bottom part
 static irqreturn_t twg_wX_iht( int _irq, void *_pdata) {
  twg_pdata_t *_p = ( twg_pdata_t *)_pdata;
- del_timer_sync( &( _p->timer));
- // we deleted the timer. if buffer overrun - let's stop IRQ
- if ( _p->d.blen >= TWG_MAX_BUF) change_mode( _p, TWG_MODE_OFF);
- // checks...
- _p->timer.expires = jiffies + msecs_to_jiffies( _p->det);
- add_timer( &( _p->timer));
+ mod_timer( &( _p->timer), jiffies + _p->det);
  return( IRQ_HANDLED);  }
 
 #if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0))
@@ -57,11 +53,16 @@ void twg_timer_fn( struct timer_list *_t) {
  twg_pdata_t *_p = ( twg_pdata_t *)from_timer( _p, _t, timer);
 #endif
  int tmp_mode = _p->mode;
+ if ( _p->d_done) return;
  if ( _p->d.blen >= TWG_MAX_BUF) {
    _p->stat_over++;
-   printk( KERN_ERR "%s resume from buffer overrun\n", _p->name);
-   _p->mode = TWG_MODE_OFF;
-   change_mode( _p, tmp_mode);
+   printk( KERN_ERR "%s buffer(%d) overrun\n", _p->name, TWG_MAX_BUF);
+//   // stop irqs
+//   _p->mode = TWG_MODE_OFF;
+//   change_mode( _p, tmp_mode);
+//   // or clean buf
+//   clean_buff( _p);
+   _p->d_done = 1;
    return;  }
  _p->d_done = 1;
  _p->stat_done++;
@@ -79,41 +80,21 @@ int change_mode( twg_pdata_t *_p, uint8_t _m) {
  if ( _m != TWG_MODE_OFF) clean_buff( _p);
  if ( _p->irq_w0) free_irq( _p->irq_w0, ( void *)_p);
  if ( _p->irq_w1) free_irq( _p->irq_w1, ( void *)_p);
- _p->irq_w0 = _p->irq_w1 = 0;
  // w0, w1
- if ( _m == 0) {	// going to Clock/Data mode
-   if ( _p->pin_w0) _p->irq_w0 = gpio_to_irq( _p->pin_w0);
-   if ( _p->irq_w0 < 0) {
-     _p->irq_w0 = 0;
-     printk( KERN_ERR "%s: W0 get irq failed\n", _p->name);
-     return( -EIO);  }
-   if ( request_threaded_irq( _p->irq_w0, twg_wX_ih, twg_wX_iht,
-          IRQF_TRIGGER_FALLING/* | IRQF_TRIGGER_RISING*/ | IRQF_ONESHOT, 
+ switch ( _m) {
+   case 0:	// to Clock/Data mode
+   case 1:	// to Wiegand mode
+     if ( _p->pin_w0) if ( ( _p->irq_w0 = gpio_to_irq( _p->pin_w0)) < 0) {
+       _p->irq_w0 = 0;
+       printk( KERN_ERR "%s: W0 get irq failed\n", _p->name);
+       return( -EIO);  }
+     if ( request_threaded_irq( _p->irq_w0, twg_wX_ih, twg_wX_iht,
+           IRQF_TRIGGER_FALLING | IRQF_ONESHOT, 
           _p->name, _p)) {
-     printk( KERN_ERR "%s: W0 irq request failed\n", _p->name);
-     return( -EIO);  }
- }
- if ( _m == 1) {	// going to WG reader mode
-   if ( _p->pin_w0) _p->irq_w0 = gpio_to_irq( _p->pin_w0);
-//   if ( _p->pin_w1) _p->irq_w1 = gpio_to_irq( _p->pin_w1);
-   if ( _p->irq_w0 < 0) {
-     _p->irq_w0 = 0;
-     printk( KERN_ERR "%s: W0 get irq failed\n", _p->name);
-     return( -EIO);  }
-   if ( request_threaded_irq( _p->irq_w0, twg_wX_ih, twg_wX_iht,
-          IRQF_TRIGGER_FALLING/* | IRQF_TRIGGER_RISING*/ | IRQF_ONESHOT, 
-          _p->name, _p)) {
-     printk( KERN_ERR "%s: W0 irq request failed\n", _p->name);
-     return( -EIO);  }
-//   if ( _p->irq_w1 < 0) {
-//     _p->irq_w1 = 0;
-//     printk( KERN_ERR "%s: W1 get irq failed\n", _p->name);
-//     return( -EIO);  }
-//   if ( request_threaded_irq( _p->irq_w1, twg_wX_ih, twg_wX_iht,
-//          IRQF_TRIGGER_FALLING/* | IRQF_TRIGGER_RISING*/ | IRQF_ONESHOT, 
-//          _p->name, _p)) {
-//     printk( KERN_ERR "%s: W1 irq request failed\n", _p->name);
-//     return( -EIO);  }
+       printk( KERN_ERR "%s: W0 irq request failed\n", _p->name);
+       return( -EIO);  }
+     break;
+   default:  break;
  }
  if ( _m != TWG_MODE_OFF) _p->mode = _m;
  return( 1);  }
@@ -128,7 +109,7 @@ static int twg_probe( struct platform_device *_pdev) {
  p = ( twg_pdata_t *)kzalloc( sizeof( twg_pdata_t), GFP_KERNEL);
  if ( p == NULL) {  ret = -ENOMEM;  goto err;  }
  p->mode = TWG_MODE_OFF;
- p->det = 50;	// 50 ms data end timeout
+ p->det = msecs_to_jiffies( 50);	// 50 ms data end timeout
  p->clear_on_read = 1;
  memset( p->name, 0, TWG_MAX_NAM);
  strcpy( p->name, np->name);
@@ -137,7 +118,7 @@ static int twg_probe( struct platform_device *_pdev) {
  p->pin_w1 = of_get_named_gpio( np, "wg-w1", 0);
  p->pin_sw = of_get_named_gpio( np, "wg-sw", 0);
  p->pin_oc = of_get_named_gpio( np, "wg-oc", 0);
-// FIXME: add choose mode in OF
+ // choose mode in OF
  if ( ( init_v32p = of_get_property( _pdev->dev.of_node, "mode", &lenp))) {
    mode_init = ( uint8_t)be32_to_cpup( init_v32p);
  }
@@ -146,17 +127,23 @@ static int twg_probe( struct platform_device *_pdev) {
  if ( !gpio_is_valid( p->pin_sw)) p->pin_sw = 0;
  if ( !gpio_is_valid( p->pin_oc)) p->pin_oc = 0;
  if ( p->pin_w0 == 0) {
-   printk( KERN_ERR "%s: W0 pin not defined\n", p->name);
-   goto err;  }
+   printk( KERN_ERR "%s: no W0 pin defined\n", p->name);
+   if ( ( p->irq_w0 = platform_get_irq( _pdev, 0)) < 0) {
+     printk( KERN_ERR "%s: nether W0 irq defined\n", p->name);
+     goto err;  }
+ }
  if ( p->pin_w1 == 0) {
-   printk( KERN_ERR "%s: W1 pin not defined\n", p->name);
-   goto err;  }
+   printk( KERN_ERR "%s: no W1 pin defined\n", p->name);
+   if ( ( p->irq_w1 = platform_get_irq( _pdev, 1)) < 0) {
+     printk( KERN_ERR "%s: nether W1 irq defined\n", p->name);
+     goto err;  }
+ }
  if ( p->pin_sw == 0) printk( KERN_INFO "%s: no optional SW pin\n", p->name);
  if ( p->pin_oc == 0) printk( KERN_INFO "%s: no optional OC pin\n", p->name);
- if ( devm_gpio_request( &( _pdev->dev), p->pin_w0, "w0") < 0) {
+ if ( p->pin_w0 && devm_gpio_request( &( _pdev->dev), p->pin_w0, "w0") < 0) {
    printk( KERN_ERR "%s: W0 pin request failed\n", p->name);
    goto err;  }
- if ( devm_gpio_request( &( _pdev->dev), p->pin_w1, "w1") < 0) {
+ if ( p->pin_w1 && devm_gpio_request( &( _pdev->dev), p->pin_w1, "w1") < 0) {
    printk( KERN_ERR "%s: W1 pin request failed\n", p->name);
    goto err;  }
  if ( p->pin_sw && devm_gpio_request( &( _pdev->dev), p->pin_sw, "sw") < 0) {
@@ -165,9 +152,8 @@ static int twg_probe( struct platform_device *_pdev) {
  if ( p->pin_oc && devm_gpio_request( &( _pdev->dev), p->pin_oc, "oc") < 0) {
    printk( KERN_ERR "%s: OC pin request failed\n", p->name);
    goto err;  }
- gpio_direction_input( p->pin_w0);
-// gpio_set_debounce( p->pin_w0, 20);
- gpio_direction_input( p->pin_w1);
+ if ( p->pin_w0) gpio_direction_input( p->pin_w0);
+ if ( p->pin_w1) gpio_direction_input( p->pin_w1);
  // FIXME: double check this
  if ( p->pin_sw) gpio_direction_output( p->pin_sw, mode_init);
  if ( p->pin_oc) gpio_direction_output( p->pin_oc, 1);
