@@ -25,7 +25,9 @@ typedef struct twg_pdata_T {
  int pin_sw;
  int pin_oc;
  int irq_w0;
+ int irq_w0_on;
  int irq_w1;
+ int irq_w1_on;
  char name[ TWG_MAX_NAM];
  twg_data_t d;
  uint8_t  d_done;	// is buffer collecting finished or not?

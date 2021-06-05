@@ -78,8 +78,8 @@ int change_mode( twg_pdata_t *_p, uint8_t _m) {
  if ( _p->pin_sw && _m != TWG_MODE_OFF) gpio_set_value( _p->pin_sw, _m);
  // == 99 - switch off
  if ( _m != TWG_MODE_OFF) clean_buff( _p);
- if ( _p->irq_w0) free_irq( _p->irq_w0, ( void *)_p);
- if ( _p->irq_w1) free_irq( _p->irq_w1, ( void *)_p);
+ if ( _p->irq_w0 && _p->irq_w0_on) free_irq( _p->irq_w0, ( void *)_p);
+ if ( _p->irq_w1 && _p->irq_w1_on) free_irq( _p->irq_w1, ( void *)_p);
  // w0, w1
  switch ( _m) {
    case 0:	// to Clock/Data mode
@@ -93,6 +93,8 @@ int change_mode( twg_pdata_t *_p, uint8_t _m) {
           _p->name, _p)) {
        printk( KERN_ERR "%s: W0 irq request failed\n", _p->name);
        return( -EIO);  }
+     _p->irq_w0_on = true;
+     printk( KERN_INFO "%s changed to mode %d\n", p->name, _m);
      break;
    default:  break;
  }
@@ -181,8 +183,9 @@ static int twg_probe( struct platform_device *_pdev) {
 static int twg_remove( struct platform_device *_pdev) {
  twg_pdata_t *p = ( twg_pdata_t *)_pdev->dev.platform_data;
  if ( p->timer.expires > jiffies) del_timer_sync( &( p->timer));
- if ( p->irq_w0) free_irq( p->irq_w0, ( void *)p);
- if ( p->irq_w1) free_irq( p->irq_w1, ( void *)p);
+ if ( p->irq_w0 && p->irq_w0_on) free_irq( p->irq_w0, ( void *)p);
+ if ( p->irq_w1 && p->irq_w1_on) free_irq( p->irq_w1, ( void *)p);
+ p->irq_w0_on = p->irq_w1_on = false;
  twg_sysfs_clean( _pdev);
  twg_procfs_clean( _pdev);
  if ( p->pin_w0 > 0) devm_gpio_free( &( _pdev->dev), p->pin_w0);
