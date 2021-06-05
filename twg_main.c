@@ -94,7 +94,7 @@ int change_mode( twg_pdata_t *_p, uint8_t _m) {
        printk( KERN_ERR "%s: W0 irq request failed\n", _p->name);
        return( -EIO);  }
      _p->irq_w0_on = true;
-     printk( KERN_INFO "%s changed to mode %d\n", p->name, _m);
+     printk( KERN_INFO "%s changed to mode %d\n", _p->name, _m);
      break;
    default:  break;
  }
