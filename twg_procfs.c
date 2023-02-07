@@ -11,18 +11,29 @@ static int dv_pf_R( struct file *_f, char __user *_buf, size_t _s, loff_t *_l) {
  *_l += ret = TWG_MAX_BUF;
  return( ret);  }
 
-static struct file_operations fo_I;	// on/off
+// on/off
+#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0))
+static const struct proc_ops fo_I = {
+ .proc_open = dv_pf_open,
+ .proc_lseek =  no_llseek,
+ .proc_release = dv_pf_release,
+ .proc_read = dv_pf_R,
+ .proc_write = dv_pf_W,
+#else
+static const struct file_operations fo_I = {
+ .owner = THIS_MODULE,
+ .open = dv_pf_open,
+ .llseek =  no_llseek,
+ .release = dv_pf_release,
+ .read = dv_pf_R,
+ .write = dv_pf_W,
+#endif
+};
 
 // ---------- main (exported) functions
 void twg_procfs_init( struct platform_device *_pdev) {
  struct proc_dir_entry *tfs;
  // register procfs entry
- fo_I.owner = THIS_MODULE;
- fo_I.open = dv_pf_open;
- fo_I.llseek =  no_llseek;
- fo_I.release = dv_pf_release;
- fo_I.read = dv_pf_R;
- fo_I.write = dv_pf_W;
  tfs = proc_create_data( dev_name( &( _pdev->dev)), 0, NULL, &fo_I, NULL);
  return;  }
 
